@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 — Monitor de Vídeo em Tempo Real</title>
+    <link rel="stylesheet" href="/style.css">
+    <script src="/script.js" defer></script>
+</head>
+<body>
+    <header class="main-header">
+        <div class="header-content">
+            <div class="title-group">
+                <h1>Monitor de Vídeo ESP32</h1>
+                <span class="subtitle">Detecção Automática de Região Preta (Apagão de Tela)</span>
+            </div>
+            <div class="header-badges">
+                <span id="status-badge" class="badge badge-idle">Parado</span>
+                <span id="heap-badge" class="badge badge-info">RAM: -- KB</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div id="camera-permission-warning" class="alert-box hidden">
+            <h3>Permissão da Câmera no Celular (HTTP)</h3>
+            <p>Navegadores mobile exigem origem segura para liberar a câmera traseira via IP. No Chrome do Android, acesse:</p>
+            <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code>
+            <p>Adicione o endereço <strong id="current-origin-url"></strong>, ative a flag e reinicie o navegador.</p>
+        </div>
+
+        <div id="auto-stop-banner" class="stop-banner hidden">
+            <strong>PARADA AUTOMÁTICA ACIONADA!</strong>
+            <span id="stop-banner-text">Região preta identificada pelo ESP32.</span>
+        </div>
+
+        <section class="grid-layout">
+            <!-- Live Camera Panel -->
+            <div class="card video-card">
+                <div class="card-header">
+                    <h2>Câmera Traseira (Tempo Real)</h2>
+                    <button id="btn-switch-cam" class="btn-secondary btn-sm" onclick="switchCamera()">Trocar Câmera</button>
+                </div>
+
+                <div class="viewport-wrapper">
+                    <video id="camera-video" autoplay playsinline muted></video>
+                    <canvas id="capture-canvas" width="320" height="240"></canvas>
+                </div>
+
+                <div class="controls-row">
+                    <button id="btn-start" class="btn-primary btn-start" onclick="startMonitoring()">
+                        &#9654; INICIAR
+                    </button>
+                    <button id="btn-stop" class="btn-primary btn-stop" onclick="stopMonitoring()" disabled>
+                        &#9632; PARAR
+                    </button>
+                </div>
+
+                <div class="test-tools">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="chk-simulate-blackout">
+                        Simular quadrado preto no vídeo (Teste de Auto-Stop)
+                    </label>
+                </div>
+            </div>
+
+            <!-- Session Status & Timestamps -->
+            <div class="card info-card">
+                <h2>Dados da Sessão</h2>
+                <div class="kpi-grid">
+                    <div class="kpi-item">
+                        <span class="kpi-label">Hora de Início</span>
+                        <span id="val-start-time" class="kpi-value">-</span>
+                    </div>
+                    <div class="kpi-item">
+                        <span class="kpi-label">Hora de Parada</span>
+                        <span id="val-stop-time" class="kpi-value text-danger">-</span>
+                    </div>
+                    <div class="kpi-item">
+                        <span class="kpi-label">Status / Motivo</span>
+                        <span id="val-stop-reason" class="kpi-value kpi-sm">Aguardando início</span>
+                    </div>
+                    <div class="kpi-item">
+                        <span class="kpi-label">Maior Quadrado Preto</span>
+                        <span id="val-max-square" class="kpi-value">0x0 px</span>
+                    </div>
+                    <div class="kpi-item">
+                        <span class="kpi-label">Frames Analisados (ESP32)</span>
+                        <span id="val-frames" class="kpi-value">0</span>
+                    </div>
+                    <div class="kpi-item">
+                        <span class="kpi-label">Coordenada Detectada</span>
+                        <span id="val-coords" class="kpi-value kpi-sm">-</span>
+                    </div>
+                </div>
+
+                <hr class="divider">
+
+                <h3>Configuração de Sensibilidade (ESP32)</h3>
+                <div class="config-form">
+                    <div class="form-group">
+                        <label for="inp-min-square">Tamanho Mínimo do Quadrado (px):</label>
+                        <input id="inp-min-square" type="number" min="20" max="200" value="50">
+                        <small>Ex: 50 para detectar quadrados de 50x50 até 100x100+</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="inp-threshold">Limiar de Preto (Luminância 0–255):</label>
+                        <input id="inp-threshold" type="number" min="1" max="250" value="35">
+                        <small>Valores menores exigem um preto mais escuro</small>
+                    </div>
+                    <button class="btn-secondary" onclick="saveDetectionConfig()">Aplicar Configuração</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Last Valid Image Before Blackout -->
+        <section class="card saved-image-card">
+            <div class="card-header">
+                <h2>Última Imagem Antes do Quadrado Preto</h2>
+                <a id="btn-download-img" href="/last_image" download="ultima_imagem_valida.jpg" class="btn-secondary btn-sm hidden">
+                    Baixar Imagem (.JPG)
+                </a>
+            </div>
+            <p class="card-desc">
+                Sempre que o ESP32 identifica que uma região da tela apagou, ele interrompe o monitoramento e preserva o último frame limpo capturado imediatamente antes da falha.
+            </p>
+            <div class="saved-image-container">
+                <img id="saved-last-img" src="" alt="Última imagem válida" class="hidden">
+                <div id="no-image-placeholder" class="placeholder-box">
+                    Nenhuma imagem de parada registrada ainda.
+                </div>
+            </div>
+        </section>
+
+        <!-- Stop History Table -->
+        <section class="card history-card">
+            <div class="card-header">
+                <h2>Histórico de Paradas</h2>
+                <div class="history-actions">
+                    <a href="/download_history" class="btn-secondary btn-sm" target="_blank">
+                        &#128190; Baixar CSV
+                    </a>
+                    <button class="btn-danger-outline btn-sm" onclick="clearStopHistory()">
+                        &#128465; Limpar Histórico
+                    </button>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table id="history-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Hora de Início</th>
+                            <th>Hora de Parada</th>
+                            <th>Tipo</th>
+                            <th>Motivo</th>
+                            <th>Quadrado</th>
+                            <th>Coordenadas</th>
+                            <th>Frames</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-tbody">
+                        <tr>
+                            <td colspan="8" class="empty-table-msg">Nenhuma parada registrada.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
