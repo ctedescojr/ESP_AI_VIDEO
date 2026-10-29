@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 — Monitor de Vídeo em Tempo Real</title>
+    <title>ESP32-CAM — Monitor de Vídeo em Tempo Real</title>
     <link rel="stylesheet" href="/style.css">
     <script src="/script.js" defer></script>
 </head>
@@ -11,10 +11,12 @@
     <header class="main-header">
         <div class="header-content">
             <div class="title-group">
-                <h1>Monitor de Vídeo ESP32</h1>
-                <span class="subtitle">Detecção Automática de Região Preta (Apagão de Tela)</span>
+                <h1>Monitor de Vídeo ESP32-CAM</h1>
+                <span class="subtitle">Câmera Nativa OV2640 — Detecção Automática de Apagão (IHM)</span>
             </div>
             <div class="header-badges">
+                <span id="cam-badge" class="badge badge-info">OV2640: --</span>
+                <span id="psram-badge" class="badge badge-info">PSRAM: --</span>
                 <span id="status-badge" class="badge badge-idle">Parado</span>
                 <span id="heap-badge" class="badge badge-info">RAM: -- KB</span>
             </div>
@@ -22,28 +24,32 @@
     </header>
 
     <main class="container">
-        <div id="camera-permission-warning" class="alert-box hidden">
-            <h3>Permissão da Câmera no Celular (HTTP)</h3>
-            <p>Navegadores mobile exigem origem segura para liberar a câmera traseira via IP. No Chrome do Android, acesse:</p>
-            <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code>
-            <p>Adicione o endereço <strong id="current-origin-url"></strong>, ative a flag e reinicie o navegador.</p>
+        <div id="camera-error-warning" class="alert-box hidden">
+            <h3>Falha ao Inicializar a Câmera OV2640</h3>
+            <p>A placa ESP32-CAM não conseguiu comunicar com o sensor OV2640. Verifique se a trava preta do conector FPC de 24 vias está bem fechada e reinicie o ESP32.</p>
         </div>
 
         <div id="auto-stop-banner" class="stop-banner hidden">
             <strong>PARADA AUTOMÁTICA ACIONADA!</strong>
-            <span id="stop-banner-text">Região preta identificada pelo ESP32.</span>
+            <span id="stop-banner-text">Região preta identificada pela ESP32-CAM.</span>
         </div>
 
         <section class="grid-layout">
-            <!-- Live Camera Panel -->
+            <!-- Live ESP32-CAM Panel -->
             <div class="card video-card">
                 <div class="card-header">
-                    <h2>Câmera Traseira (Tempo Real)</h2>
-                    <button id="btn-switch-cam" class="btn-secondary btn-sm" onclick="switchCamera()">Trocar Câmera</button>
+                    <h2>Visão Ao Vivo (ESP32-CAM)</h2>
+                    <div class="cam-toolbar">
+                        <button id="btn-flip" class="btn-secondary btn-sm" onclick="toggleCameraFlip()">
+                            &#8635; Girar 180°
+                        </button>
+                        <button id="btn-flash" class="btn-secondary btn-sm" onclick="toggleFlashLed()">
+                            &#128161; Flash: OFF
+                        </button>
+                    </div>
                 </div>
 
                 <div class="viewport-wrapper">
-                    <video id="camera-video" autoplay playsinline muted></video>
                     <canvas id="capture-canvas" width="320" height="240"></canvas>
                 </div>
 
@@ -57,10 +63,7 @@
                 </div>
 
                 <div class="test-tools">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="chk-simulate-blackout">
-                        Simular quadrado preto no vídeo (Teste de Auto-Stop)
-                    </label>
+                    <span><strong>Dica de Teste:</strong> Toque em <em>Iniciar</em> e cubra parcialmente ou totalmente a lente da câmera OV2640 para simular a tela da IHM apagando.</span>
                 </div>
             </div>
 
@@ -96,7 +99,7 @@
 
                 <hr class="divider">
 
-                <h3>Configuração de Sensibilidade (ESP32)</h3>
+                <h3>Configuração de Sensibilidade (ESP32-CAM)</h3>
                 <div class="config-form">
                     <div class="form-group">
                         <label for="inp-min-square">Tamanho Mínimo do Quadrado (px):</label>
@@ -122,7 +125,7 @@
                 </a>
             </div>
             <p class="card-desc">
-                Sempre que o ESP32 identifica que uma região da tela apagou, ele interrompe o monitoramento e preserva o último frame limpo capturado imediatamente antes da falha.
+                Sempre que a ESP32-CAM identifica que uma região da tela apagou, ela interrompe o monitoramento e preserva o último frame limpo capturado imediatamente antes da falha.
             </p>
             <div class="saved-image-container">
                 <img id="saved-last-img" src="" alt="Última imagem válida" class="hidden">

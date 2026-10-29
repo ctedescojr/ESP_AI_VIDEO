@@ -32,8 +32,7 @@ namespace SessionState {
         session.detectedX          = 0;
         session.detectedY          = 0;
 
-        digitalWrite(PIN_LED_STATUS, HIGH);
-        digitalWrite(PIN_LED_ALERT, LOW);
+        digitalWrite(PIN_LED_ONBOARD_RED, LED_ONBOARD_ON);
 
         Logger::printf("Session started at %s (minSquare=%u, threshold=%u)\n",
                        session.startTime.c_str(), session.minSquareSize, session.blackThreshold);
@@ -48,7 +47,7 @@ namespace SessionState {
         session.stopTime           = TimeUtils::currentDateTimeFormatted();
         session.stopReason         = "Parada manual pelo operador";
 
-        digitalWrite(PIN_LED_STATUS, LOW);
+        digitalWrite(PIN_LED_ONBOARD_RED, LED_ONBOARD_OFF);
         HistoryStorage::appendStopEvent(session);
         Logger::printf("Session manually stopped at %s\n", session.stopTime.c_str());
     }
@@ -65,8 +64,7 @@ namespace SessionState {
                              String(result.maxSquareSize) + "x" +
                              String(result.maxSquareSize) + " px)";
 
-        digitalWrite(PIN_LED_STATUS, LOW);
-        digitalWrite(PIN_LED_ALERT, HIGH);
+        digitalWrite(PIN_LED_ONBOARD_RED, LED_ONBOARD_OFF);
         HistoryStorage::appendStopEvent(session);
 
         Logger::printf("AUTO-STOP at %s! Black square %ux%u detected at (%u, %u)\n",

@@ -1,19 +1,19 @@
 // ============================================================
 // script.js
-// Responsibility: Rear camera capture, real-time JPEG frame
-// transmission to ESP32, clock synchronization, and UI state.
+// Responsibility: Polls live JPEG snapshots from ESP32-CAM
+// OV2640 sensor, synchronizes clock, and updates session UI.
 // ============================================================
 
-let mediaStream = null;
-let useRearCamera = true;
 let isMonitoring = false;
-let isSendingFrame = false;
-let frameLoopTimer = null;
+let isFetchingSnapshot = false;
+let flashLedEnabled = false;
+let cameraFlipped180 = false;
 let lastDetectedBox = null;
 
-const FRAME_WIDTH = 320;
-const FRAME_HEIGHT = 240;
-const FRAME_INTERVAL_MS = 250;
+const CANVAS_WIDTH = 320;
+const CANVAS_HEIGHT = 240;
+const SNAPSHOT_INTERVAL_MS = 280;
+const STATUS_INTERVAL_MS = 600;
 
 function getUnixTimestampSeconds() {
     return Math.floor(Date.now() / 1000);
@@ -32,112 +32,93 @@ async function syncBrowserTimeWithEsp() {
     }
 }
 
-async function initCamera() {
-    const warningBox = document.getElementById("camera-permission-warning");
-    const originSpan = document.getElementById("current-origin-url");
-    if (originSpan) {
-        originSpan.textContent = window.location.origin;
-    }
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        if (warningBox) {
-            warningBox.classList.remove("hidden");
-        }
-        startRenderLoop();
-        return;
-    }
-
-    if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop());
-    }
-
-    const constraints = {
-        audio: false,
-        video: {
-            facingMode: useRearCamera ? { ideal: "environment" } : "user",
-            width: { ideal: FRAME_WIDTH },
-            height: { ideal: FRAME_HEIGHT }
-        }
-    };
-
-    try {
-        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-        const video = document.getElementById("camera-video");
-        video.srcObject = mediaStream;
-        await video.play();
-        if (warningBox) {
-            warningBox.classList.add("hidden");
-        }
-    } catch (err) {
-        console.error("Error accessing camera:", err);
-        if (warningBox) {
-            warningBox.classList.remove("hidden");
-        }
-    }
-
-    startRenderLoop();
-}
-
-function switchCamera() {
-    useRearCamera = !useRearCamera;
-    initCamera();
-}
-
-function drawCurrentFrameToCanvas() {
-    const video = document.getElementById("camera-video");
-    const canvas = document.getElementById("capture-canvas");
-    const ctx = canvas.getContext("2d");
-
-    if (video && video.readyState >= 2 && video.videoWidth > 0) {
-        ctx.drawImage(video, 0, 0, FRAME_WIDTH, FRAME_HEIGHT);
-    } else {
-        // Fallback synthetic background when camera is unavailable
-        const grad = ctx.createLinearGradient(0, 0, FRAME_WIDTH, FRAME_HEIGHT);
-        grad.addColorStop(0, "#1e3a8a");
-        grad.addColorStop(1, "#3b82f6");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, FRAME_WIDTH, FRAME_HEIGHT);
-
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "14px sans-serif";
-        ctx.fillText("Camera Live Preview (" + new Date().toLocaleTimeString() + ")", 24, 34);
-    }
-
-    // Optional test blackout square injection (80x80 solid black square)
-    const simCheck = document.getElementById("chk-simulate-blackout");
-    if (simCheck && simCheck.checked) {
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(110, 70, 80, 80);
-    }
-}
-
-function drawOverlayBox() {
+function drawOverlayBox(ctx) {
     if (!lastDetectedBox) {
         return;
     }
-    const canvas = document.getElementById("capture-canvas");
-    const ctx = canvas.getContext("2d");
     ctx.strokeStyle = "#ef4444";
     ctx.lineWidth = 3;
-    ctx.strokeRect(lastDetectedBox.x, lastDetectedBox.y, lastDetectedBox.size, lastDetectedBox.size);
+    ctx.strokeRect(
+        lastDetectedBox.x,
+        lastDetectedBox.y,
+        lastDetectedBox.size,
+        lastDetectedBox.size
+    );
 }
 
-function startRenderLoop() {
-    function render() {
-        drawCurrentFrameToCanvas();
-        drawOverlayBox();
-        requestAnimationFrame(render);
+function drawPlaceholderOnCanvas(message) {
+    const canvas = document.getElementById("capture-canvas");
+    if (!canvas) {
+        return;
     }
-    requestAnimationFrame(render);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "14px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(message, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+}
+
+function fetchLiveSnapshot() {
+    if (isFetchingSnapshot || document.hidden) {
+        return;
+    }
+    isFetchingSnapshot = true;
+
+    const img = new Image();
+    img.onload = () => {
+        const canvas = document.getElementById("capture-canvas");
+        if (canvas) {
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            drawOverlayBox(ctx);
+        }
+        isFetchingSnapshot = false;
+    };
+    img.onerror = () => {
+        drawPlaceholderOnCanvas("Aguardando frame da ESP32-CAM...");
+        isFetchingSnapshot = false;
+    };
+    img.src = "/snapshot?t=" + Date.now();
+}
+
+async function toggleFlashLed() {
+    const targetState = !flashLedEnabled;
+    try {
+        const res = await fetch("/camera_control", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "flash=" + (targetState ? "1" : "0")
+        });
+        if (res.ok) {
+            const status = await res.json();
+            updateUiFromStatus(status);
+        }
+    } catch (err) {
+        console.error("Failed to toggle flash LED:", err);
+    }
+}
+
+async function toggleCameraFlip() {
+    const targetFlip = !cameraFlipped180;
+    try {
+        const res = await fetch("/camera_control", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "flip=" + (targetFlip ? "1" : "0")
+        });
+        if (res.ok) {
+            const status = await res.json();
+            updateUiFromStatus(status);
+        }
+    } catch (err) {
+        console.error("Failed to toggle camera flip:", err);
+    }
 }
 
 async function startMonitoring() {
     lastDetectedBox = null;
-    const simCheck = document.getElementById("chk-simulate-blackout");
-    if (simCheck) {
-        simCheck.checked = false;
-    }
-
     try {
         const body = "timestamp=" + encodeURIComponent(getUnixTimestampSeconds());
         const res = await fetch("/start", {
@@ -145,23 +126,16 @@ async function startMonitoring() {
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: body
         });
-        const data = await res.json();
-        updateUiFromStatus(data);
-
-        if (frameLoopTimer) {
-            clearInterval(frameLoopTimer);
+        if (res.ok) {
+            const data = await res.json();
+            updateUiFromStatus(data);
         }
-        frameLoopTimer = setInterval(captureAndSendFrame, FRAME_INTERVAL_MS);
     } catch (err) {
         console.error("Failed to start monitoring:", err);
     }
 }
 
 async function stopMonitoring() {
-    if (frameLoopTimer) {
-        clearInterval(frameLoopTimer);
-        frameLoopTimer = null;
-    }
     try {
         const body = "timestamp=" + encodeURIComponent(getUnixTimestampSeconds());
         const res = await fetch("/stop", {
@@ -169,46 +143,14 @@ async function stopMonitoring() {
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: body
         });
-        const data = await res.json();
-        updateUiFromStatus(data);
-        await loadStopHistory();
+        if (res.ok) {
+            const data = await res.json();
+            updateUiFromStatus(data);
+            await loadStopHistory();
+        }
     } catch (err) {
         console.error("Failed to stop monitoring:", err);
     }
-}
-
-function captureAndSendFrame() {
-    if (!isMonitoring || isSendingFrame) {
-        return;
-    }
-
-    const canvas = document.getElementById("capture-canvas");
-    drawCurrentFrameToCanvas();
-
-    isSendingFrame = true;
-    canvas.toBlob(async (blob) => {
-        if (!blob) {
-            isSendingFrame = false;
-            return;
-        }
-        try {
-            const formData = new FormData();
-            formData.append("frame", blob, "frame.jpg");
-
-            const res = await fetch("/frame", {
-                method: "POST",
-                body: formData
-            });
-            if (res.ok) {
-                const status = await res.json();
-                updateUiFromStatus(status);
-            }
-        } catch (err) {
-            console.error("Error sending frame:", err);
-        } finally {
-            isSendingFrame = false;
-        }
-    }, "image/jpeg", 0.75);
 }
 
 async function saveDetectionConfig() {
@@ -226,7 +168,7 @@ async function saveDetectionConfig() {
         if (res.ok) {
             const status = await res.json();
             updateUiFromStatus(status);
-            alert("Configuracao atualizada no ESP32!");
+            alert("Configuracao atualizada na ESP32-CAM!");
         }
     } catch (err) {
         alert("Erro ao salvar configuracao.");
@@ -301,9 +243,48 @@ async function clearStopHistory() {
     }
 }
 
+function updateHardwareBadges(data) {
+    const camBadge = document.getElementById("cam-badge");
+    const camWarning = document.getElementById("camera-error-warning");
+    if (camBadge) {
+        camBadge.className = "badge " + (data.camera_ok ? "badge-running" : "badge-alert");
+        camBadge.textContent = "OV2640: " + (data.camera_ok ? "OK" : "ERRO");
+    }
+    if (camWarning) {
+        if (data.camera_ok === false) {
+            camWarning.classList.remove("hidden");
+        } else {
+            camWarning.classList.add("hidden");
+        }
+    }
+
+    const psramBadge = document.getElementById("psram-badge");
+    if (psramBadge) {
+        if (data.psram_ok) {
+            const psramKb = Math.round((data.free_psram || 0) / 1024);
+            psramBadge.className = "badge badge-running";
+            psramBadge.textContent = "PSRAM: " + psramKb + " KB";
+        } else {
+            psramBadge.className = "badge badge-idle";
+            psramBadge.textContent = "PSRAM: N/A";
+        }
+    }
+
+    flashLedEnabled = Boolean(data.flash_on);
+    cameraFlipped180 = Boolean(data.flipped_180);
+
+    const btnFlash = document.getElementById("btn-flash");
+    if (btnFlash) {
+        btnFlash.textContent = flashLedEnabled ? "💡 Flash: ON" : "💡 Flash: OFF";
+        btnFlash.classList.toggle("btn-flash-active", flashLedEnabled);
+    }
+}
+
 function updateUiFromStatus(data) {
     const wasMonitoring = isMonitoring;
     isMonitoring = Boolean(data.is_running);
+
+    updateHardwareBadges(data);
 
     const btnStart = document.getElementById("btn-start");
     const btnStop = document.getElementById("btn-stop");
@@ -349,15 +330,12 @@ function updateUiFromStatus(data) {
         };
     } else if (data.is_running) {
         document.getElementById("val-coords").textContent = "-";
+        lastDetectedBox = null;
     }
 
     const stopBanner = document.getElementById("auto-stop-banner");
     const stopBannerText = document.getElementById("stop-banner-text");
     if (data.stopped_by_detection) {
-        if (frameLoopTimer) {
-            clearInterval(frameLoopTimer);
-            frameLoopTimer = null;
-        }
         if (stopBanner) stopBanner.classList.remove("hidden");
         if (stopBannerText) {
             stopBannerText.textContent =
@@ -365,7 +343,7 @@ function updateUiFromStatus(data) {
                 " px detectado em (" + data.detected_x + ", " + data.detected_y +
                 ") às " + data.stop_time + ". Última imagem pré-falha salva!";
         }
-        if (data.has_saved_image) {
+        if (wasMonitoring && data.has_saved_image) {
             refreshSavedImage();
         }
         if (wasMonitoring) {
@@ -377,17 +355,11 @@ function updateUiFromStatus(data) {
 }
 
 async function pollStatus() {
-    if (isMonitoring) {
-        return;
-    }
     try {
         const res = await fetch("/status");
         if (res.ok) {
             const data = await res.json();
             updateUiFromStatus(data);
-            if (data.has_saved_image) {
-                refreshSavedImage();
-            }
         }
     } catch (err) {
         console.warn("Status poll error:", err);
@@ -395,9 +367,19 @@ async function pollStatus() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+    drawPlaceholderOnCanvas("Conectando à câmera OV2640...");
     await syncBrowserTimeWithEsp();
-    await initCamera();
     await pollStatus();
     await loadStopHistory();
-    setInterval(pollStatus, 5000);
+
+    const initialStatusRes = await fetch("/status").catch(() => null);
+    if (initialStatusRes && initialStatusRes.ok) {
+        const initialData = await initialStatusRes.json();
+        if (initialData.has_saved_image) {
+            refreshSavedImage();
+        }
+    }
+
+    setInterval(fetchLiveSnapshot, SNAPSHOT_INTERVAL_MS);
+    setInterval(pollStatus, STATUS_INTERVAL_MS);
 });

@@ -2,15 +2,41 @@
 
 // ============================================================
 // Config.h
-// Responsibility: Global hardware constants, video analysis
-// thresholds, network settings, and filesystem paths.
+// Responsibility: Global hardware constants for AI-Thinker
+// ESP32-CAM, video analysis thresholds, network settings, and
+// filesystem paths.
 // ============================================================
 
 #include <Arduino.h>
 
-// ── Hardware Pins ───────────────────────────────────────────
-static constexpr uint8_t PIN_LED_STATUS = 2;
-static constexpr uint8_t PIN_LED_ALERT  = 4;
+// ── ESP32-CAM Onboard LEDs ──────────────────────────────────
+static constexpr uint8_t PIN_LED_ONBOARD_RED = 33;
+static constexpr uint8_t PIN_LED_FLASH       = 4;
+static constexpr uint8_t LED_ONBOARD_ON      = LOW;
+static constexpr uint8_t LED_ONBOARD_OFF     = HIGH;
+
+// ── AI-Thinker ESP32-CAM OV2640 Pin Map ─────────────────────
+static constexpr int CAM_PIN_PWDN  = 32;
+static constexpr int CAM_PIN_RESET = -1;
+static constexpr int CAM_PIN_XCLK  = 0;
+static constexpr int CAM_PIN_SIOD  = 26;
+static constexpr int CAM_PIN_SIOC  = 27;
+static constexpr int CAM_PIN_D7    = 35;
+static constexpr int CAM_PIN_D6    = 34;
+static constexpr int CAM_PIN_D5    = 39;
+static constexpr int CAM_PIN_D4    = 36;
+static constexpr int CAM_PIN_D3    = 21;
+static constexpr int CAM_PIN_D2    = 19;
+static constexpr int CAM_PIN_D1    = 18;
+static constexpr int CAM_PIN_D0    = 5;
+static constexpr int CAM_PIN_VSYNC = 25;
+static constexpr int CAM_PIN_HREF  = 23;
+static constexpr int CAM_PIN_PCLK  = 22;
+
+// ── Camera Capture Settings ─────────────────────────────────
+static constexpr uint32_t CAMERA_XCLK_FREQ_HZ        = 20000000;
+static constexpr int      CAMERA_JPEG_QUALITY        = 12;
+static constexpr uint32_t CAMERA_CAPTURE_INTERVAL_MS = 250;
 
 // ── Watchdog ────────────────────────────────────────────────
 static constexpr uint32_t WDT_TIMEOUT_S = 15;
@@ -23,7 +49,7 @@ static constexpr uint8_t  WIFI_CONNECT_TIMEOUT_HALF_S = 16;
 // ── Video Analysis Settings ─────────────────────────────────
 static constexpr uint16_t FRAME_WIDTH             = 320;
 static constexpr uint16_t FRAME_HEIGHT            = 240;
-static constexpr size_t   MAX_JPEG_FRAME_BYTES    = 45000;
+static constexpr size_t   MAX_JPEG_FRAME_BYTES    = 120000;
 static constexpr uint16_t DEFAULT_MIN_SQUARE_SIZE = 50;
 static constexpr uint16_t MIN_ALLOWED_SQUARE_SIZE = 20;
 static constexpr uint16_t MAX_ALLOWED_SQUARE_SIZE = 200;

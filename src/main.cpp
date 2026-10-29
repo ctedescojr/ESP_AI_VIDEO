@@ -11,10 +11,12 @@
 #include <WebServer.h>
 #include <esp_task_wdt.h>
 
+#include "CameraManager.h"
 #include "Config.h"
 #include "FrameStorage.h"
 #include "HistoryStorage.h"
 #include "Logger.h"
+#include "MonitoringEngine.h"
 #include "NetworkManager.h"
 #include "SessionState.h"
 #include "TimeUtils.h"
@@ -23,11 +25,11 @@
 static WebServer server(WEB_SERVER_PORT);
 
 static void initHardware() {
-    pinMode(PIN_LED_STATUS, OUTPUT);
-    pinMode(PIN_LED_ALERT, OUTPUT);
+    pinMode(PIN_LED_ONBOARD_RED, OUTPUT);
+    pinMode(PIN_LED_FLASH, OUTPUT);
 
-    digitalWrite(PIN_LED_STATUS, LOW);
-    digitalWrite(PIN_LED_ALERT, LOW);
+    digitalWrite(PIN_LED_ONBOARD_RED, LED_ONBOARD_OFF);
+    digitalWrite(PIN_LED_FLASH, LOW);
 }
 
 static bool initSpiffs() {
@@ -51,6 +53,7 @@ void setup() {
         return;
     }
 
+    CameraManager::init();
     FrameStorage::init();
     HistoryStorage::init();
     SessionState::init();
@@ -79,4 +82,5 @@ void loop() {
 
     Logger::handleTelnetClient();
     server.handleClient();
+    MonitoringEngine::loop();
 }

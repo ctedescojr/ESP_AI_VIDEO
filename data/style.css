@@ -57,6 +57,18 @@ body {
     display: flex;
     gap: 8px;
     align-items: center;
+    flex-wrap: wrap;
+}
+
+.cam-toolbar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.btn-flash-active {
+    background: #f59e0b !important;
+    color: #fff !important;
 }
 
 .badge {
